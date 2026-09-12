@@ -6,6 +6,10 @@
  * 补齐缺失的 compat 方言、模型 contextWindow / maxTokens / reasoningEfforts。
  * 用户已手写的字段一律保留（只补空缺），写入经 llm-pi-ai 自己的 schema 校验。
  *
+ * 上下文阈值 `maxContext`：百炼不少模型支持 1M 上下文，而工程上 1M 与 400k
+ * 效果相近、却远好于 262k 默认值；设一个部署级阈值，把目录里超过它的
+ * contextWindow 钳制到阈值，其余不动。
+ *
  * 幂等：每次设置变化后重算"缺口补丁"，无缺口则不写，因此自身写入触发的
  * `settings/document-updated` 事件不会造成循环。
  *
@@ -21,7 +25,7 @@ const name = "bailian-models";
 /** 只需要设置缝；事件监听是 cordis 核心能力，无需注入。 */
 const inject = ["settings"];
 
-/** 预置路由名：它由本包的 bundle patch 完整提供，自动适配跳过它。 */
+/** 预置路由名：它由本包的 bundle patch 完整提供。 */
 const PRESET_ROUTE = "bailian";
 /** llm-pi-ai 的设置命名空间。 */
 const NS = "llm-pi-ai";
@@ -32,8 +36,12 @@ const BAILIAN_HOST = /(^|\.)(dashscope(-intl|-us)?\.aliyuncs\.com|maas\.aliyuncs
 /** 归一化插件配置（无 schema 依赖；非法值回落默认）。 */
 function normalizeConfig(config) {
 	const raw = config && typeof config === "object" ? config : {};
+	const maxContext = typeof raw.maxContext === "number" && Number.isFinite(raw.maxContext) && raw.maxContext >= 1
+		? Math.floor(raw.maxContext)
+		: undefined;
 	return {
 		autoAdapt: typeof raw.autoAdapt === "boolean" ? raw.autoAdapt : true,
+		maxContext,
 		extraHosts: Array.isArray(raw.extraHosts) ? raw.extraHosts.filter((h) => typeof h === "string") : [],
 	};
 }
@@ -66,14 +74,21 @@ function catalogFor(modelId) {
 	}
 }
 
+/** 把一个 contextWindow 值按阈值钳制（maxContext 为空则原值返回）。 */
+function clampContext(value, maxContext) {
+	if (maxContext === undefined || typeof value !== "number") return value;
+	return value > maxContext ? maxContext : value;
+}
+
 /**
- * 计算一条路由的"缺口补丁"：只填用户未设置的字段。
+ * 计算一条已有路由的"缺口补丁"：只填用户未设置的字段。
  * @param routeKey - 路由名。
  * @param routeCfg - 该路由在用户层的原始配置。
  * @param isBailianHost - 主机名判定（含 extraHosts）。
+ * @param maxContext - 上下文阈值；目录源的 contextWindow 超过它即钳制。
  * @returns 需要 merge 进用户层的补丁，或 undefined（非百炼/无缺口/不适用）。
  */
-function computeRoutePatch(routeKey, routeCfg, isBailianHost) {
+function computeRoutePatch(routeKey, routeCfg, isBailianHost, maxContext) {
 	if (routeKey === PRESET_ROUTE) return undefined;
 	if (!routeCfg || typeof routeCfg !== "object") return undefined;
 	const host = hostOf(routeCfg.baseURL);
@@ -100,7 +115,9 @@ function computeRoutePatch(routeKey, routeCfg, isBailianHost) {
 		const filled = { ...entry };
 		for (const key of ["name", "contextWindow", "maxTokens", "input", "reasoningEfforts"]) {
 			if (!(key in filled) && cat[key] !== undefined) {
-				filled[key] = cat[key];
+				// 上下文阈值只钳制目录源（非用户显式）的值。
+				const val = key === "contextWindow" ? clampContext(cat[key], maxContext) : cat[key];
+				filled[key] = val;
 				modelsTouched = true;
 			}
 		}
@@ -129,6 +146,29 @@ function computeRoutePatch(routeKey, routeCfg, isBailianHost) {
 	}
 
 	return Object.keys(patch).length > 0 ? patch : undefined;
+}
+
+/**
+ * 计算预置 bailian 路由的"阈值补丁"：base 层里 contextWindow 超过 maxContext
+ * 的模型钳制到阈值。返回完整 models 数组（settings 合并时整体替换 base）。
+ *
+ * 只读 base 层原始值来钳制，不读用户层——这样改变 maxContext 能干净地重新生效；
+ * 代价是启用阈值后预置路由的 models 会落到用户层（机制限制：数组只能整体替换）。
+ * @param baseBailian - descriptor.base.providers.bailian（本包 base 层）。
+ * @param maxContext - 阈值；为空返回 undefined。
+ * @returns {models: [...]} 或 undefined。
+ */
+function clampPresetModels(baseBailian, maxContext) {
+	if (maxContext === undefined) return undefined;
+	const models = Array.isArray(baseBailian?.models) ? baseBailian.models : [];
+	let touched = false;
+	const clamped = models.map((entry) => {
+		if (!entry || typeof entry.contextWindow !== "number") return entry;
+		if (entry.contextWindow <= maxContext) return entry;
+		touched = true;
+		return { ...entry, contextWindow: maxContext };
+	});
+	return touched ? { models: clamped } : undefined;
 }
 
 /**
@@ -162,17 +202,25 @@ function apply(ctx, rawConfig) {
 	async function adaptOnce() {
 		const descriptor = ctx.settings.describe().find((d) => d.ns === NS);
 		if (!descriptor) return; // llm-pi-ai 尚未注册分节；由重试/事件兜底
-		const userProviders = descriptor.user?.providers;
-		if (!userProviders || typeof userProviders !== "object") return;
 		const patch = {};
-		for (const [route, cfg] of Object.entries(userProviders)) {
-			const routePatch = computeRoutePatch(route, cfg, isBailianHost);
-			if (routePatch) patch[route] = routePatch;
+
+		// 已有用户路由：按缺口补齐（含上下文阈值钳制目录源值）。
+		const userProviders = descriptor.user?.providers;
+		if (userProviders && typeof userProviders === "object") {
+			for (const [route, cfg] of Object.entries(userProviders)) {
+				const routePatch = computeRoutePatch(route, cfg, isBailianHost, config.maxContext);
+				if (routePatch) patch[route] = routePatch;
+			}
 		}
+
+		// 预置 bailian 路由：base 层原始值按阈值钳制（启用阈值时才写）。
+		const presetClamp = clampPresetModels(descriptor.base?.providers?.[PRESET_ROUTE], config.maxContext);
+		if (presetClamp) patch[PRESET_ROUTE] = { ...(patch[PRESET_ROUTE] ?? {}), ...presetClamp };
+
 		if (Object.keys(patch).length === 0) return;
 		try {
 			await ctx.settings.update(NS, { providers: patch }, descriptor.revision);
-			ctx.logger.info(`dsh-bailian-models: 已自动补齐百炼路由：${Object.keys(patch).join(", ")}`);
+			ctx.logger.info(`dsh-bailian-models: 已补齐百炼路由：${Object.keys(patch).join(", ")}${config.maxContext ? `（上下文阈值 ${config.maxContext}）` : ""}`);
 		} catch (error) {
 			// 冲突（用户正在编辑）→ 下次事件再试；校验失败 → 保留现状并告警。
 			if (error?.name === "SettingsConflictError") return;
@@ -196,4 +244,4 @@ function apply(ctx, rawConfig) {
 	}, { global: true });
 }
 
-export { catalogFor, computeRoutePatch, inject, name, normalizeConfig, apply };
+export { apply, catalogFor, clampContext, clampPresetModels, computeRoutePatch, inject, name, normalizeConfig };

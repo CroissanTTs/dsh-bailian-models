@@ -39,9 +39,11 @@ export DASHSCOPE_API_KEY=sk-...
 
 - 路由级 `compat` 方言（`thinkingFormat: qwen`、`supportsStore: false`、`supportsDeveloperRole: false`）；
 - 目录内已知模型的 `contextWindow` / `maxTokens` / `input` / `reasoningEfforts` / 模型级 `compat`（支持 `-0902`、`-2026-05-20` 这类快照后缀自动匹配母型号）；
-- 预算型模型所需的路由级 `thinkingBudgets` 档位映射。
+- 预算型模型所需的路约级 `thinkingBudgets` 档位映射。
 
-**只补空缺，永不覆盖你写过的值**；模型 id 不在目录里的条目原样保留。写入前会经过 `dsh-llm-pi-ai` 自己的 schema 校验，写不进去就保留现状并告警，绝不弄坏配置。不想用可以在 profile 的用户 patch 里禁用 `bailian-models-autoadapt` 行，或把它的 `config.autoAdapt` 改为 `false`；自托管网关可用 `config.extraHosts` 添加自定义主机名。
+**上下文阈值 `maxContext`**：百炼不少模型支持 1M 上下文，而工程上 1M 与 400k 效果相近、却远好于 262k 默认值。在插件 config 设 `maxContext: 400000` 后，目录里超过它的 contextWindow 一律钳制到阈值，其余不动——既享受大上下文红利又不滥用。仅钳制**目录源**的值，你显式写过的 contextWindow 不受影响。
+
+**只补空缺，永不覆盖你写过的值**；模型 id 不在目录里的条目原样保留。写入前会经过 `dsh-llm-pi-ai` 自己的 schema 校验，写不进去就保留现状并告警，绝不弄坏配置。不想用可以在 profile 的用户 patch 里禁用 `bailian-models-autoadapt` 行，或把它的 `config.autoAdapt` 改为 `false`；自托管网关可用 `config.extraHosts` 添加自定义主机名；`config.maxContext` 设上下文阈值。
 
 > 注意：自动补齐的内容写入的是 settings 的**用户层**（即你的 `settings.yaml`），卸载插件后这些已补齐的字段会保留（无害），而预置的 `bailian` 路由会随插件卸载消失。
 
@@ -107,6 +109,18 @@ llm-pi-ai:
       # 收窄模型列表（整体替换），或给某个模型改容量
       models:
         - id: qwen3.8-max   # 其余字段继承插件 base 层同名条目
+```
+
+## 设上下文阈值
+
+在 profile 的用户 patch 里覆盖本插件的 `bailian-models-autoadapt` 行，把 `maxContext` 设为你想的上限（比如 400000）。所有百炼路由（预置的 `bailian` 和自动适配到的已有路由）里**目录源**的 contextWindow 超过它的都会被钳到该值：
+
+```yaml
+- id: bailian-models-autoadapt
+  name: dsh-bailian-models
+  config:
+    autoAdapt: true
+    maxContext: 400000      # 1M 上下文的模型按 400k 用；262k 以下的不动
 ```
 
 **卸载**：市场/命令行卸载本插件后，`bailian` 路由随 base 层一起消失；你在用户层对 `bailian` 的覆盖仍会保留但不再有任何效果，可一并删除。

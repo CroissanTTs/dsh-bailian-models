@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
-import { apply, catalogFor, computeRoutePatch } from "../src/index.js";
+import { apply, catalogFor, clampPresetModels, computeRoutePatch } from "../src/index.js";
 import { MODELS, ROUTE_DEFAULTS } from "../src/catalog.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -133,6 +133,44 @@ ok("幂等：填补后再算无缺口", () => {
 	assert.equal(computeRoutePatch("ark-coding-plan", mergedRoute, isBailianHost), undefined);
 });
 
+// ── 4b. 上下文阈值 maxContext ───────────────────────────────────
+ok("已有路由：目录源的 contextWindow 超过阈值被钳制，低于阈值不动", () => {
+	const p = computeRoutePatch("ark-coding-plan", structuredClone(userRoute), isBailianHost, 400000);
+	// kimi-k3 目录值 1048576 → 钳到 400000；用户未写过 contextWindow
+	assert.equal(p.models[3].contextWindow, 400000);
+	// qwen3.8-max-0902 目录值 1000000 → 400000
+	assert.equal(p.models[0].contextWindow, 400000);
+});
+
+ok("阈值只钳目录源值，用户显式写的 contextWindow 不动", () => {
+	const route = { ...structuredClone(userRoute), models: [{ id: "kimi-k3", name: "K3", contextWindow: 800000 }] };
+	const p = computeRoutePatch("ark-coding-plan", route, isBailianHost, 400000);
+	assert.equal(p.models[0].contextWindow, 800000); // 用户显式 800000，不钳
+});
+
+ok("无阈值时目录值原样（1M）", () => {
+	const p = computeRoutePatch("ark-coding-plan", structuredClone(userRoute), isBailianHost);
+	assert.equal(p.models[3].contextWindow, 1048576);
+});
+
+ok("clampPresetModels：base 超阈值钳制、低阈值不动、无阈值返回 undefined", () => {
+	const base = { models: MODELS };
+	const clamped = clampPresetModels(base, 400000);
+	assert.ok(clamped, "应产出补丁");
+	const byId = new Map(clamped.models.map((m) => [m.id, m]));
+	assert.equal(byId.get("qwen3.8-max").contextWindow, 400000);     // 1M → 400k
+	assert.equal(byId.get("kimi-k3").contextWindow, 400000);          // 1M → 400k
+	assert.equal(byId.get("qwen3-max").contextWindow, 262144);        // 262144 < 400k，不动
+	assert.equal(byId.get("qwen-turbo").contextWindow, 131072);       // 不动
+	assert.equal(clampPresetModels(base, undefined), undefined);
+	assert.equal(clampPresetModels({ models: MODELS }, 2_000_000), undefined, "阈值高于所有值 → 不产补丁");
+});
+
+// 真实 settings 服务在合并后与现状 deepEqual 时不发事件、不增 revision——
+// 这是自动适配器幂等止循环的关键；mock 必须复刻这一步（尤其 maxContext 场景
+// 下 clampPresetModels 读静态 base、永远产出补丁）。
+const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
 // ── 5. apply() 全链路（mock settings 服务） ───────────────────────
 async function testApply() {
 	const document = { "llm-pi-ai": { providers: { "ark-coding-plan": structuredClone(userRoute) } } };
@@ -147,10 +185,10 @@ async function testApply() {
 			async update(ns, patchObj, expectedRevision) {
 				assert.equal(ns, "llm-pi-ai");
 				assert.equal(expectedRevision, revision);
-				// 模拟真实服务：merge → schema 校验 → 提交 → revision++ → 事件
 				const candidate = merge(document[ns], patchObj);
 				const result = await Config["~standard"].validate(candidate);
 				if (result.issues) throw new Error("validation failed");
+				if (equal(document[ns], candidate)) return; // 无变化：止循环
 				document[ns] = candidate;
 				revision++;
 				updates.push(patchObj);
@@ -170,5 +208,52 @@ async function testApply() {
 	passed++;
 }
 await testApply();
+
+// ── 6. apply() + maxContext：预置路由阈值钳制 + 改值重新生效 + 幂等 ─
+async function testMaxContext() {
+	// base 层 = 插件预置的 bailian 路由（catalog 原值）
+	const baseBailian = { compat: ROUTE_DEFAULTS.compat, thinkingBudgets: ROUTE_DEFAULTS.thinkingBudgets, models: MODELS.map((m) => ({ ...m })) };
+	const document = { "llm-pi-ai": { providers: { "ark-coding-plan": structuredClone(userRoute) } } };
+	let revision = 1;
+	const updates = [];
+	const listeners = [];
+	const ctx = {
+		logger: { info() {}, warn() {} },
+		on: (event, fn) => listeners.push([event, fn]),
+		settings: {
+			describe: () => [{ ns: "llm-pi-ai", base: { providers: { bailian: baseBailian } }, user: document["llm-pi-ai"], revision }],
+			async update(ns, patchObj, expectedRevision) {
+				assert.equal(expectedRevision, revision);
+				const candidate = merge(document[ns], patchObj);
+				const result = await Config["~standard"].validate(candidate);
+				if (result.issues) throw new Error("validation failed");
+				if (equal(document[ns], candidate)) return; // 无变化：止循环
+				document[ns] = candidate;
+				revision++;
+				updates.push(patchObj);
+				for (const [, fn] of listeners.filter(([e]) => e === "settings/document-updated")) fn(ns);
+			},
+		},
+	};
+	apply(ctx, { autoAdapt: true, maxContext: 400000 });
+	await new Promise((r) => setTimeout(r, 50));
+
+	// 第一次写入：ark-coding-plan 缺口补齐 + bailian 阈值钳制，应在同一次 update 里
+	assert.equal(updates.length, 1, "一次写入");
+	const u = updates[0].providers;
+	assert.ok(u["ark-coding-plan"], "已有路由被补齐");
+	assert.ok(u.bailian?.models, "预置路由被阈值钳制");
+	const byId = new Map(u.bailian.models.map((m) => [m.id, m]));
+	assert.equal(byId.get("qwen3.8-max").contextWindow, 400000);
+	assert.equal(byId.get("qwen3-max").contextWindow, 262144, "低于阈值不动");
+
+	// 合并后 resolved 的 bailian：用户层钳制值覆盖 base（数组替换）
+	const resolvedBailian = document["llm-pi-ai"].providers.bailian;
+	assert.equal(new Map(resolvedBailian.models.map((m) => [m.id, m])).get("kimi-k3").contextWindow, 400000);
+
+	console.log("  ✓ apply()+maxContext：预置路由钳制、合并过 schema、止循环");
+	passed++;
+}
+await testMaxContext();
 
 console.log(`\n全部通过（${passed} 项）`);
