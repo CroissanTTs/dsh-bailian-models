@@ -1,7 +1,7 @@
 {
   "name": "dsh-bailian-models",
-  "version": "1.2.0",
-  "description": "Alibaba Bailian (DashScope) model catalog preset + auto-adapter for DeepSeek Harness — reasoning effort levels, thinking budgets and context windows for all major text models, with automatic adaptation of existing Bailian routes and a configurable context-window ceiling",
+  "version": "1.3.0",
+  "description": "Alibaba Bailian (DashScope) model catalog preset + auto-adapter + smart compaction for DeepSeek Harness — reasoning effort levels, thinking budgets, context windows, auto-adaptation of existing Bailian routes, a configurable context ceiling, and (bundled) a context-budget reminder with event-timeline/short-long-term-memory smart compression",
   "keywords": [
     "deepseek-harness",
     "dsh",
@@ -33,6 +33,9 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "dependencies": {
+    "dsh-smart-compact": "^1.0.0"
   },
   "scripts": {
     "build": "node scripts/build-catalog.mjs",

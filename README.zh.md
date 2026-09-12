@@ -5,7 +5,8 @@
 DeepSeek Harness（DSH）插件：**阿里云百炼（DashScope）**适配包——
 
 1. **预置路由**：一条开箱即用的 `bailian` provider 路由，内置 **36 个主流文本模型**的完整目录（上下文窗口、最大输出、按模型家族适配的推理强度控制）；
-2. **自动适配器**：自动识别你**已有的** provider 路由中 baseURL 指向百炼的（如 `dashscope.aliyuncs.com`），无需手动修改配置，即为其补齐正确的方言、推理档位与上下文声明——你已填写的字段一律保留。
+2. **自动适配器**：自动识别你**已有的** provider 路由中 baseURL 指向百炼的（如 `dashscope.aliyuncs.com`），无需手动修改配置，即为其补齐正确的方言、推理档位与上下文声明——你已填写的字段一律保留；
+3. **智能压缩**（依赖 `dsh-smart-compact` 一并安装）：到上下文阈值先提示用户再压缩，摘要按事件线 + 短期/长期记忆分级；详见 [dsh-smart-compact](../dsh-smart-compact/README.zh.md)。
 
 安装后在 DSH 的模型选择器里直接选用百炼模型，推理强度档位出现在会话的推理强度控件中；不需要手写任何 `settings.yaml`。
 
