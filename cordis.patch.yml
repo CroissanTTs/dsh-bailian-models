@@ -1,0 +1,412 @@
+# dsh-bailian-models — 阿里云百炼（DashScope）模型目录预置
+#
+# 工作机制：dsh-base 组合里常驻挂载了一行休眠的 `@deepseek-ai/dsh-llm-pi-ai`
+#（id: llm-pi-ai，无 config）。本 patch 按 id 覆盖该行的整个 config，
+# 把 `bailian` 预置路由注入组合的 base 层；用户在 settings.yaml / 模型设置页
+# 的 `llm-pi-ai:` 分节仍按 provider 键逐层合并，可以覆盖这里的任何字段。
+# `name` 行是防漂移护栏：若未来 base 组合在该 id 上换了别的插件，本 patch
+# 会被跳过并告警，而不是静默写坏配置。
+#
+# 推理强度适配按百炼官方文档分四档（见 README 的模型速查表）：
+#   A. 等级型：enable_thinking + reasoning_effort（qwen3.8 / glm-5.x / deepseek-v4）
+#   B. 预算型：enable_thinking + thinking_budget，档位映射 token 预算（qwen3.5-3.7、qwen3-max、qwen-plus）
+#   C. 开关型：仅 enable_thinking 开/关（deepseek-v3.x、kimi-k2.5/2.6、qwen-flash/turbo）
+#   D. 仅思考型：始终思考、不可调节，声明为非推理模型以免误发参数（kimi-k3、deepseek-r1、MiniMax-M2.x 等）
+#
+# 数据来源：阿里云百炼官方文档各模型信息页（上下文/最大输出/思维链上限）与
+# 《深度思考模型的用法》支持矩阵；GLM 的 reasoning_effort 取值取自 GLM 系列页。
+# 逐模型出处见 README.md。
+
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      bailian:
+        displayName: 百炼 DashScope
+        # 凭据引用：按请求从环境变量解析，不落盘。改用其它变量名请在设置里覆盖。
+        apiKeyEnv: DASHSCOPE_API_KEY
+        api: openai-completions
+        # 华北2（北京）标准端点。新加坡：https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+        # 美国（弗吉尼亚）：https://dashscope-us.aliyuncs.com/compatible-mode/v1
+        baseURL: https://dashscope.aliyuncs.com/compatible-mode/v1
+        defaultContextWindow: 262144
+        defaultMaxTokens: 32768
+        compat:
+          # pi-ai 不认识 dashscope 域名，必须显式声明，否则会按 OpenAI 默认方言错配。
+          thinkingFormat: qwen
+          supportsStore: false
+          supportsDeveloperRole: false
+          supportsReasoningEffort: false
+        # 预算型模型的档位 → thinking_budget token 映射（路由级，逐模型按 maxTokens 钳制）。
+        thinkingBudgets:
+          minimal: 1024
+          low: 4096
+          medium: 16384
+          high: 65536
+        models:
+          # ── A. 等级型：reasoning_effort ─────────────────────────────
+          # Qwen3.8 系列：官方支持 low / medium / xhigh（默认 xhigh）；
+          # reasoning_effort 与 thinking_budget 互斥，故不配预算字段。
+          - id: qwen3.8-max
+            name: Qwen3.8 Max
+            contextWindow: 1000000
+            maxTokens: 131072
+            input: [text, image]
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              low: low
+              medium: medium
+              xhigh: xhigh
+          - id: qwen3.8-max-0902
+            name: Qwen3.8 Max (0902 快照)
+            contextWindow: 1000000
+            maxTokens: 131072
+            input: [text, image]
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              low: low
+              medium: medium
+              xhigh: xhigh
+          - id: qwen3.8-flash
+            name: Qwen3.8 Flash
+            contextWindow: 1000000
+            maxTokens: 131072
+            input: [text, image]
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              low: low
+              medium: medium
+              xhigh: xhigh
+          # GLM-5.2 系列：官方文档取值 none~max（none 由 off 档覆盖）。
+          - id: glm-5.2
+            name: GLM-5.2
+            contextWindow: 1048576
+            maxTokens: 131072
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+              xhigh: xhigh
+              max: max
+          - id: glm-5.2-us
+            name: GLM-5.2 (US)
+            contextWindow: 1048576
+            maxTokens: 131072
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+              xhigh: xhigh
+              max: max
+          - id: glm-5.2-fast-preview
+            name: GLM-5.2 Fast Preview
+            contextWindow: 1048576
+            maxTokens: 131072
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+              xhigh: xhigh
+              max: max
+          # GLM-5.1 / GLM-5：官方取值 none~xhigh（不支持 max）。
+          - id: glm-5.1
+            name: GLM-5.1
+            contextWindow: 202745
+            maxTokens: 131072
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+              xhigh: xhigh
+          - id: glm-5
+            name: GLM-5
+            contextWindow: 202752
+            maxTokens: 16384
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+              xhigh: xhigh
+          # DeepSeek V4 系列：reasoning_effort 支持 high / max（pi-ai 目录口径）。
+          - id: deepseek-v4-pro
+            name: DeepSeek V4 Pro
+            contextWindow: 1000000
+            maxTokens: 393216
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              high: high
+              max: max
+          - id: deepseek-v4-pro-0813
+            name: DeepSeek V4 Pro (0813 快照)
+            contextWindow: 1000000
+            maxTokens: 393216
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              high: high
+              max: max
+          - id: deepseek-v4-flash
+            name: DeepSeek V4 Flash
+            contextWindow: 1000000
+            maxTokens: 393216
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              high: high
+              max: max
+          - id: deepseek-v4-flash-0731
+            name: DeepSeek V4 Flash (0731 快照)
+            contextWindow: 1000000
+            maxTokens: 393216
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              high: high
+              max: max
+          # ── B. 预算型：档位 → thinking_budget ───────────────────────
+          # Qwen3.7 系列（思维链上限 262144）
+          - id: qwen3.7-max
+            name: Qwen3.7 Max
+            contextWindow: 1000000
+            maxTokens: 131072
+            compat:
+              supportsThinkingTokenBudget: true
+              thinkingTokenBudgetField: thinking_budget
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+          - id: qwen3.7-plus
+            name: Qwen3.7 Plus
+            contextWindow: 1000000
+            maxTokens: 131072
+            input: [text, image]
+            compat:
+              supportsThinkingTokenBudget: true
+              thinkingTokenBudgetField: thinking_budget
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+          - id: qwen3.7-flash
+            name: Qwen3.7 Flash
+            contextWindow: 1000000
+            maxTokens: 131072
+            compat:
+              supportsThinkingTokenBudget: true
+              thinkingTokenBudgetField: thinking_budget
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+          # Qwen3.6 系列
+          - id: qwen3.6-plus
+            name: Qwen3.6 Plus
+            contextWindow: 1000000
+            maxTokens: 65536
+            input: [text, image]
+            compat:
+              supportsThinkingTokenBudget: true
+              thinkingTokenBudgetField: thinking_budget
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+          - id: qwen3.6-flash
+            name: Qwen3.6 Flash
+            contextWindow: 1000000
+            maxTokens: 65536
+            input: [text, image]
+            compat:
+              supportsThinkingTokenBudget: true
+              thinkingTokenBudgetField: thinking_budget
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+          # Qwen3.5 系列（思维链上限 81920）
+          - id: qwen3.5-plus
+            name: Qwen3.5 Plus
+            contextWindow: 1000000
+            maxTokens: 65536
+            compat:
+              supportsThinkingTokenBudget: true
+              thinkingTokenBudgetField: thinking_budget
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+          - id: qwen3.5-flash
+            name: Qwen3.5 Flash
+            contextWindow: 1000000
+            maxTokens: 65536
+            compat:
+              supportsThinkingTokenBudget: true
+              thinkingTokenBudgetField: thinking_budget
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+          # Qwen3 商业版（混合思考，默认关闭；思维链上限 81920）
+          - id: qwen3-max
+            name: Qwen3 Max
+            contextWindow: 262144
+            maxTokens: 65536
+            compat:
+              supportsThinkingTokenBudget: true
+              thinkingTokenBudgetField: thinking_budget
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+          - id: qwen-plus
+            name: Qwen Plus
+            contextWindow: 1000000
+            maxTokens: 32768
+            compat:
+              supportsThinkingTokenBudget: true
+              thinkingTokenBudgetField: thinking_budget
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+          # ── C. 开关型：仅开/关思考 ──────────────────────────────────
+          # qwen-flash / qwen-turbo 的 thinking_budget 上限未见官方记载，稳妥起见只给开关。
+          - id: qwen-flash
+            name: Qwen Flash
+            contextWindow: 1000000
+            maxTokens: 32768
+            reasoningEfforts:
+              off:
+              high: high
+          - id: qwen-turbo
+            name: Qwen Turbo
+            contextWindow: 131072
+            maxTokens: 16384
+            reasoningEfforts:
+              off:
+              high: high
+          # DeepSeek V3.x（混合思考，默认关闭）
+          - id: deepseek-v3.2
+            name: DeepSeek V3.2
+            contextWindow: 131072
+            maxTokens: 65536
+            reasoningEfforts:
+              off:
+              high: high
+          - id: deepseek-v3.2-exp
+            name: DeepSeek V3.2 Exp
+            contextWindow: 131072
+            maxTokens: 65536
+            reasoningEfforts:
+              off:
+              high: high
+          - id: deepseek-v3.1
+            name: DeepSeek V3.1
+            contextWindow: 131072
+            maxTokens: 65536
+            reasoningEfforts:
+              off:
+              high: high
+          # Kimi K2.5 / K2.6（百炼部署，混合思考，默认关闭）
+          - id: kimi-k2.6
+            name: Kimi K2.6
+            contextWindow: 262144
+            maxTokens: 16384
+            input: [text, image]
+            reasoningEfforts:
+              off:
+              high: high
+          - id: kimi-k2.5
+            name: Kimi K2.5
+            contextWindow: 262144
+            maxTokens: 16384
+            input: [text, image]
+            reasoningEfforts:
+              off:
+              high: high
+          # ── D. 仅思考型：始终思考，声明为非推理以免误发 enable_thinking ──
+          # 这些模型永远先思考再回复；thinking 内容仍会正常显示，只是没有档位可调。
+          - id: kimi-k3
+            name: Kimi K3
+            contextWindow: 1048576
+            maxTokens: 1048576
+          - id: kimi-k2.7-code
+            name: Kimi K2.7 Code
+            contextWindow: 262144
+            maxTokens: 16384
+            input: [text, image]
+          # kimi-k2-thinking 的百炼上下文未见单列，按 K2 家族 262144 取值。
+          - id: kimi-k2-thinking
+            name: Kimi K2 Thinking
+            contextWindow: 262144
+            maxTokens: 16384
+          - id: MiniMax-M2.5
+            name: MiniMax M2.5
+            contextWindow: 204800
+            maxTokens: 32768
+          - id: MiniMax-M2.1
+            name: MiniMax M2.1
+            contextWindow: 204800
+            maxTokens: 32768
+          - id: deepseek-r1
+            name: DeepSeek R1
+            contextWindow: 131072
+            maxTokens: 16384
+          - id: deepseek-r1-0528
+            name: DeepSeek R1 (0528)
+            contextWindow: 131072
+            maxTokens: 16384
+          - id: qwq-plus
+            name: QwQ Plus
+            contextWindow: 131072
+            maxTokens: 8192
