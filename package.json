@@ -1,7 +1,7 @@
 {
   "name": "dsh-bailian-models",
-  "version": "1.0.0",
-  "description": "Alibaba Bailian (DashScope) model catalog preset for DeepSeek Harness — reasoning effort levels, thinking budgets and context windows for all major text models",
+  "version": "1.1.0",
+  "description": "Alibaba Bailian (DashScope) model catalog preset + auto-adapter for DeepSeek Harness — reasoning effort levels, thinking budgets and context windows for all major text models, with automatic adaptation of existing Bailian provider routes",
   "keywords": [
     "deepseek-harness",
     "dsh",
@@ -18,8 +18,14 @@
     "type": "git",
     "url": "git+https://github.com/<your-github>/dsh-bailian-models.git"
   },
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
   "files": [
     "cordis.patch.yml",
+    "src/",
     "README.md",
     "README.zh.md"
   ],
@@ -29,7 +35,9 @@
     }
   },
   "scripts": {
-    "validate": "node scripts/validate.mjs"
+    "build": "node scripts/build-catalog.mjs",
+    "validate": "node scripts/validate.mjs",
+    "test": "node scripts/validate.mjs && node scripts/test-autoadapt.mjs"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-llm-pi-ai": "^0.1.5-rc.1",

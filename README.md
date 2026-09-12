@@ -2,7 +2,10 @@
 
 English | [中文](README.zh.md)
 
-A DeepSeek Harness (DSH) plugin that ships a preset **Alibaba Bailian (DashScope)** provider route: **36 major text models** with correct context windows, max output tokens, and per-family **reasoning effort controls** (`enable_thinking` / `reasoning_effort` / `thinking_budget`).
+A DeepSeek Harness (DSH) plugin for **Alibaba Bailian (DashScope)**:
+
+1. **Preset route**: a ready-to-use `bailian` provider route with a built-in catalog of **36 major text models** — context windows, max output tokens, and per-family reasoning effort controls (`enable_thinking` / `reasoning_effort` / `thinking_budget`);
+2. **Auto-adapter**: detects any of your **existing** provider routes whose `baseURL` points at Bailian and fills in the missing dialect, reasoning levels, and capacity declarations — fields you wrote yourself are always kept.
 
 Once installed, Bailian models appear in the DSH model picker with working reasoning-effort levels — no hand-written `settings.yaml` required.
 
@@ -27,6 +30,18 @@ export DASHSCOPE_API_KEY=sk-...
 ```
 
 You can later edit the `bailian` route in DSH settings (Models page) to use a different env var name or regional endpoint.
+
+## Auto-adapting existing routes
+
+Beyond the preset `bailian` route, the bundle mounts an auto-adapter: it watches the `llm-pi-ai` settings section, and any existing route whose `baseURL` hostname matches a Bailian endpoint (`dashscope.aliyuncs.com` / `dashscope-intl` / `dashscope-us` / `*.maas.aliyuncs.com`) gets filled in automatically:
+
+- route-level dialect compat (`thinkingFormat: qwen`, `supportsStore: false`, `supportsDeveloperRole: false`);
+- `contextWindow` / `maxTokens` / `input` / `reasoningEfforts` / model-level `compat` for models known to the bundled catalog (snapshot suffixes like `-0902` or `-2026-05-20` fall back to the parent model);
+- the route-level `thinkingBudgets` level map when budget-type models are present.
+
+**Only gaps are filled — values you wrote are never overwritten**; unknown model ids are left untouched. Every write is validated against `dsh-llm-pi-ai`'s own schema first; if a write is rejected, your config stays as-is and a warning is logged. Disable per profile by disabling the `bailian-models-autoadapt` patch row, or set its `config.autoAdapt: false`; self-hosted gateways can be added via `config.extraHosts`.
+
+> Auto-filled fields land in the **user layer** of your settings (`settings.yaml`), so they survive uninstalling the plugin (harmlessly); the preset `bailian` route disappears with uninstall.
 
 ## How reasoning levels map to the wire
 
@@ -71,7 +86,10 @@ llm-pi-ai:
 
 ## How it works (for maintainers)
 
-This is a **pure-config bundle** — no code. `package.json`'s `dsh.bundle.patch` points to [`cordis.patch.yml`](cordis.patch.yml), which overrides (by `id`) the dormant `llm-pi-ai` row in the `dsh-base` composition, injecting the `bailian` route into the base layer. The `name` field is a drift guard: if a future base composition mounts a different plugin under that id, this patch is skipped with a warning instead of silently corrupting configuration.
+Two parts:
+
+1. **Pure-config preset**: `package.json`'s `dsh.bundle.patch` points to [`cordis.patch.yml`](cordis.patch.yml), which overrides (by `id`) the dormant `llm-pi-ai` row in the `dsh-base` composition, injecting the `bailian` route into the base layer. The `name` field is a drift guard: if a future base composition mounts a different plugin under that id, this patch is skipped with a warning instead of silently corrupting configuration.
+2. **Auto-adapter** (`src/index.js`, mounted by the same patch's `insert` row): listens to `settings/document-updated`, detects Bailian routes by hostname, and fills gaps via an idempotent pure function (`computeRoutePatch`). The model catalog is generated from `cordis.patch.yml` (`npm run build` → `src/catalog.mjs`); the YAML is the single source of truth. Zero runtime dependencies.
 
 Serialization is done by `@deepseek-ai/dsh-llm-pi-ai` (pi-ai runtime): with the `qwen` thinking dialect it sends `enable_thinking` / `reasoning_effort` / `thinking_budget`, and reasoning streams back via `reasoning_content`.
 
@@ -79,7 +97,7 @@ Validate after editing the patch:
 
 ```bash
 npm install
-npm run validate   # validates cordis.patch.yml against the real dsh-llm-pi-ai Config schema
+npm test   # schema-validates cordis.patch.yml + catalog sync + auto-adapter behavior (13 assertions)
 ```
 
 ## Platform constraints worth knowing

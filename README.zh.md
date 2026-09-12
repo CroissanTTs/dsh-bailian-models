@@ -2,7 +2,10 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness（DSH）插件：一条预置的**阿里云百炼（DashScope）** provider 路由，内置 **36 个主流文本模型**的完整适配——每个模型的上下文窗口、最大输出，以及按百炼各模型家族逐一适配的**推理强度控制**（`enable_thinking` / `reasoning_effort` / `thinking_budget`）。
+DeepSeek Harness（DSH）插件：**阿里云百炼（DashScope）**适配包——
+
+1. **预置路由**：一条开箱即用的 `bailian` provider 路由，内置 **36 个主流文本模型**的完整目录（上下文窗口、最大输出、按模型家族适配的推理强度控制）；
+2. **自动适配器**：自动识别你**已有的** provider 路由中 baseURL 指向百炼的（如 `dashscope.aliyuncs.com`），无需手动修改配置，即为其补齐正确的方言、推理档位与上下文声明——你已填写的字段一律保留。
 
 安装后在 DSH 的模型选择器里直接选用百炼模型，推理强度档位出现在会话的推理强度控件中；不需要手写任何 `settings.yaml`。
 
@@ -29,6 +32,18 @@ export DASHSCOPE_API_KEY=sk-...
 ```
 
 也可以在 DSH 设置 → 模型里编辑 `bailian` 路由、改用自己的环境变量名或地域端点。
+
+## 自动适配已有路由
+
+除了预置的 `bailian` 路由，插件还挂载了一个自动适配器：它监听 `llm-pi-ai` 设置分节，凡是 `baseURL` 主机名匹配百炼端点（`dashscope.aliyuncs.com` / `dashscope-intl` / `dashscope-us` / `*.maas.aliyuncs.com`）的**已有路由**，都会被自动补齐：
+
+- 路由级 `compat` 方言（`thinkingFormat: qwen`、`supportsStore: false`、`supportsDeveloperRole: false`）；
+- 目录内已知模型的 `contextWindow` / `maxTokens` / `input` / `reasoningEfforts` / 模型级 `compat`（支持 `-0902`、`-2026-05-20` 这类快照后缀自动匹配母型号）；
+- 预算型模型所需的路由级 `thinkingBudgets` 档位映射。
+
+**只补空缺，永不覆盖你写过的值**；模型 id 不在目录里的条目原样保留。写入前会经过 `dsh-llm-pi-ai` 自己的 schema 校验，写不进去就保留现状并告警，绝不弄坏配置。不想用可以在 profile 的用户 patch 里禁用 `bailian-models-autoadapt` 行，或把它的 `config.autoAdapt` 改为 `false`；自托管网关可用 `config.extraHosts` 添加自定义主机名。
+
+> 注意：自动补齐的内容写入的是 settings 的**用户层**（即你的 `settings.yaml`），卸载插件后这些已补齐的字段会保留（无害），而预置的 `bailian` 路由会随插件卸载消失。
 
 ## 推理强度是怎么映射的
 
@@ -98,7 +113,10 @@ llm-pi-ai:
 
 ## 工作原理（给维护者）
 
-这是一个**纯配置 bundle**：没有代码。`package.json` 的 `dsh.bundle.patch` 指向 [`cordis.patch.yml`](cordis.patch.yml)，后者按 id 覆盖 dsh-base 组合里休眠的 `llm-pi-ai` 行（该行无 config），把 `bailian` 路由注入组合 base 层。`name` 字段是防漂移护栏：若未来 base 组合在该 id 挂载了别的插件，本 patch 会被跳过并告警而非静默写坏配置。
+两部分：
+
+1. **纯配置 bundle 预置**：`package.json` 的 `dsh.bundle.patch` 指向 [`cordis.patch.yml`](cordis.patch.yml)，按 id 覆盖 dsh-base 组合里休眠的 `llm-pi-ai` 行（该行无 config），把 `bailian` 路由注入组合 base 层。`name` 字段是防漂移护栏：若未来 base 组合在该 id 挂载了别的插件，本 patch 会被跳过并告警而非静默写坏配置。
+2. **自动适配器**（`src/index.js`，同一个 patch 的 `insert` 行挂载）：监听 `settings/document-updated` 事件，对 `llm-pi-ai` 分节里的用户路由做主机名检测与缺口补齐（`computeRoutePatch` 纯函数，幂等）。模型目录从 `cordis.patch.yml` 生成（`npm run build` 产出 `src/catalog.mjs`），YAML 是唯一事实源。运行时零依赖。
 
 请求的实际序列化由 `@deepseek-ai/dsh-llm-pi-ai`（pi-ai 运行时）完成：`thinkingFormat: qwen` 方言下发送 `enable_thinking` / `reasoning_effort` / `thinking_budget`；思考内容经 `reasoning_content` 回流显示。
 
@@ -106,7 +124,7 @@ llm-pi-ai:
 
 ```bash
 npm install
-npm run validate   # 用真实 dsh-llm-pi-ai 的 Config schema 校验 cordis.patch.yml
+npm test   # schema 校验 cordis.patch.yml + catalog 同步性 + 自动适配器行为（13 项断言）
 ```
 
 ## 已知的百炼平台约束

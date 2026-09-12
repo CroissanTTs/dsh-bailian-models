@@ -17,6 +17,15 @@
 # 《深度思考模型的用法》支持矩阵；GLM 的 reasoning_effort 取值取自 GLM 系列页。
 # 逐模型出处见 README.md。
 
+# 第二行：挂载本包的自动适配器（src/index.js）。它监听 llm-pi-ai 设置分节，
+# 自动识别 baseURL 指向百炼的已有路由并补齐缺失的方言/容量/推理档位声明，
+# 用户手写的字段一律保留。不需要可在 profile 用户 patch 里禁用该行。
+- insert:
+    - id: bailian-models-autoadapt
+      name: dsh-bailian-models
+      config:
+        autoAdapt: true
+
 - id: llm-pi-ai
   name: '@deepseek-ai/dsh-llm-pi-ai'
   config:
