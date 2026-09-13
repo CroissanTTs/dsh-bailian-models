@@ -16,7 +16,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/<your-github>/dsh-bailian-models.git"
+    "url": "git+https://github.com/CroissanTTs/dsh-bailian-models.git"
   },
   "main": "src/index.js",
   "exports": {
