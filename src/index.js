@@ -82,6 +82,13 @@ function clampContext(value, maxContext) {
 
 /**
  * 计算一条已有路由的"缺口补丁"：只填用户未设置的字段。
+ *
+ * 预置路由（bailian）是特例：它的 baseURL / compat / thinkingBudgets 都由本包
+ * base 层提供，用户层通常只写覆盖项（比如换个 apiKeyEnv），所以这里跳过主机判定
+ * ——该路由必然指向百炼。但用户层一旦显式写了 `models`（GUI 模型页编辑后回写就会
+ * 这样），settings 合并时数组整体替换，base 层目录被整份盖掉；此时同样必须按目录
+ * 补齐，否则清单里每个模型都会丢掉 reasoningEfforts（表现为推理强度滑动条消失）。
+ *
  * @param routeKey - 路由名。
  * @param routeCfg - 该路由在用户层的原始配置。
  * @param isBailianHost - 主机名判定（含 extraHosts）。
@@ -89,21 +96,29 @@ function clampContext(value, maxContext) {
  * @returns 需要 merge 进用户层的补丁，或 undefined（非百炼/无缺口/不适用）。
  */
 function computeRoutePatch(routeKey, routeCfg, isBailianHost, maxContext) {
-	if (routeKey === PRESET_ROUTE) return undefined;
 	if (!routeCfg || typeof routeCfg !== "object") return undefined;
-	const host = hostOf(routeCfg.baseURL);
-	if (!host || !isBailianHost(host)) return undefined;
 	if (!Array.isArray(routeCfg.models)) return undefined;
+	const isPreset = routeKey === PRESET_ROUTE;
+	if (!isPreset) {
+		const host = hostOf(routeCfg.baseURL);
+		if (!host || !isBailianHost(host)) return undefined;
+	}
 
 	const patch = {};
-	const routeCompat = routeCfg.compat ?? {};
+	const userCompat = routeCfg.compat ?? {};
 
-	// 路由级 compat：补缺失的方言开关。
+	// 路由级 compat：只给用户层补它自己缺、且 base 层也没提供的方言开关
+	// （预置路由的方言开关 base 层已经声明，用户层不必重复一遍）。
 	const compatFill = {};
-	for (const [key, value] of Object.entries(ROUTE_DEFAULTS.compat)) {
-		if (!(key in routeCompat)) compatFill[key] = value;
+	if (!isPreset) {
+		for (const [key, value] of Object.entries(ROUTE_DEFAULTS.compat)) {
+			if (!(key in userCompat)) compatFill[key] = value;
+		}
+		if (Object.keys(compatFill).length > 0) patch.compat = compatFill;
 	}
-	if (Object.keys(compatFill).length > 0) patch.compat = compatFill;
+
+	// 路由层最终生效的 compat：预置路由的缺项由 base 层（= ROUTE_DEFAULTS）兜底。
+	const effectiveCompat = { ...(isPreset ? ROUTE_DEFAULTS.compat : {}), ...userCompat, ...compatFill };
 
 	// 模型条目：settings 合并时数组整体替换，补丁必须携带完整数组（原条目 + 填补）。
 	let modelsTouched = false;
@@ -126,22 +141,21 @@ function computeRoutePatch(routeKey, routeCfg, isBailianHost, maxContext) {
 			const modelCompat = {};
 			for (const [key, value] of Object.entries(cat.compat)) {
 				if (key in existing) continue; // 用户模型级手写优先
-				// 路由层（已有或本次填补）的有效值与目录一致时才省略模型级声明。
-				const effective = key in compatFill ? compatFill[key] : routeCompat[key];
-				if (effective !== value) modelCompat[key] = value;
+				// 路由层（含 base 层兜底）的有效值与目录一致时才省略模型级声明。
+				if (effectiveCompat[key] !== value) modelCompat[key] = value;
 			}
 			if (Object.keys(modelCompat).length > 0) {
 				filled.compat = { ...existing, ...modelCompat };
 				modelsTouched = true;
 			}
 		}
-		if ((filled.compat ?? compatFill).thinkingTokenBudgetField) anyBudgetModel = true;
+		if ({ ...effectiveCompat, ...(filled.compat ?? {}) }.thinkingTokenBudgetField) anyBudgetModel = true;
 		return filled;
 	});
 	if (modelsTouched) patch.models = models;
 
-	// 预算型模型需要路由级 thinkingBudgets 映射才有档位语义。
-	if (anyBudgetModel && ROUTE_DEFAULTS.thinkingBudgets && routeCfg.thinkingBudgets === undefined) {
+	// 预算型模型需要路由级 thinkingBudgets 映射才有档位语义（预置路由同样由 base 层提供）。
+	if (!isPreset && anyBudgetModel && ROUTE_DEFAULTS.thinkingBudgets && routeCfg.thinkingBudgets === undefined) {
 		patch.thinkingBudgets = ROUTE_DEFAULTS.thinkingBudgets;
 	}
 
@@ -213,9 +227,16 @@ function apply(ctx, rawConfig) {
 			}
 		}
 
-		// 预置 bailian 路由：base 层原始值按阈值钳制（启用阈值时才写）。
-		const presetClamp = clampPresetModels(descriptor.base?.providers?.[PRESET_ROUTE], config.maxContext);
-		if (presetClamp) patch[PRESET_ROUTE] = { ...(patch[PRESET_ROUTE] ?? {}), ...presetClamp };
+		// 预置 bailian 路由有两种形态，互斥处理：
+		//  · 用户层没写 models → base 层目录生效，只需按阈值钳制 base 原值；
+		//  · 用户层写了 models → 数组整体替换掉 base 目录，由上面 computeRoutePatch
+		//    按目录补齐（阈值也已在其内部应用）。此时绝不能再写 base 的钳制结果：
+		//    那会把用户的清单整份换回 37 个模型。
+		const presetUserModels = Array.isArray(userProviders?.[PRESET_ROUTE]?.models);
+		if (!presetUserModels) {
+			const presetClamp = clampPresetModels(descriptor.base?.providers?.[PRESET_ROUTE], config.maxContext);
+			if (presetClamp) patch[PRESET_ROUTE] = { ...(patch[PRESET_ROUTE] ?? {}), ...presetClamp };
+		}
 
 		if (Object.keys(patch).length === 0) return;
 		try {

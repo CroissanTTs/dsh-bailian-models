@@ -216,6 +216,27 @@ export const MODELS = [
 		}
 	},
 	{
+		"id": "deepseek-v4.1-flash",
+		"name": "DeepSeek V4.1 Flash",
+		"contextWindow": 1000000,
+		"maxTokens": 393216,
+		"input": [
+			"text",
+			"image"
+		],
+		"compat": {
+			"supportsReasoningEffort": true
+		},
+		"reasoningEfforts": {
+			"minimal": "minimal",
+			"low": "low",
+			"medium": "medium",
+			"high": "high",
+			"xhigh": "xhigh",
+			"max": "ultra"
+		}
+	},
+	{
 		"id": "qwen3.7-max",
 		"name": "Qwen3.7 Max",
 		"contextWindow": 1000000,

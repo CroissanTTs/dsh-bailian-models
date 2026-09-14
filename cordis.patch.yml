@@ -203,6 +203,36 @@
               off:
               high: high
               max: max
+          # DeepSeek V4.1 Flash（2026-09-13 上线）。官方文档写 reasoning_effort 取
+          # “1～100 的整数”，但线上 compatible-mode 端点实测**拒绝整数**，只认枚举
+          # minimal/low/medium/high/xhigh/max/ultra。
+          #
+          # ⚠️ harness 的档位上限是 7，且 off 占其中一格（pi-ai 的
+          # EXTENDED_THINKING_LEVELS = off/minimal/low/medium/high/xhigh/max，
+          # getSupportedThinkingLevels 会把未声明档位剔除）。所以“不要 off、minimal→ultra
+          # 正好七档”在 harness 里做不到：只能是「off+6 档」或「无 off、6 档」。
+          # 官方那七级枚举里必然要丢掉一级。
+          #
+          # 本文件选择：不声明 off（滑动条最低档 = minimal），保留官方最低档 minimal，
+          # 把 max 映射到官方最高档 ultra 用满上限 —— 等于丢掉高位的 max、留下低位。
+          # 代价：该模型不可关闭思考（实测 enable_thinking:false 确实能关，属主动取舍）。
+          # 想恢复“可关思考”，给 reasoningEfforts 补一行空的 `off:` 即可，此时为 7 档
+          # 但最高只见 xhigh。
+          # 容量与模态取自官方模型元数据接口。
+          - id: deepseek-v4.1-flash
+            name: DeepSeek V4.1 Flash
+            contextWindow: 1000000
+            maxTokens: 393216
+            input: [text, image]
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+              xhigh: xhigh
+              max: ultra
           # ── B. 预算型：档位 → thinking_budget ───────────────────────
           # Qwen3.7 系列（思维链上限 262144）
           - id: qwen3.7-max

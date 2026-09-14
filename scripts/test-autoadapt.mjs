@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
 import { apply, catalogFor, clampPresetModels, computeRoutePatch } from "../src/index.js";
 import { MODELS, ROUTE_DEFAULTS } from "../src/catalog.mjs";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 let passed = 0;
@@ -39,10 +40,10 @@ ok("catalog.mjs 与 cordis.patch.yml 同步", () => {
 // ── 2. computeRoutePatch 行为 ─────────────────────────────────────
 const isBailianHost = (h) => /(^|\.)(dashscope(-intl|-us)?\.aliyuncs\.com|maas\.aliyuncs\.com)$/i.test(h);
 
-// 用户当前真实路由形态（取自 ~/.dsh/settings.yaml）
+// 一条已有百炼路由的典型形态：自建路由名、用户自己起的短名、部分字段已手写
 const userRoute = {
-	displayName: "Zane",
-	apiKeyEnv: "ARK_CODING_PLAN_API_KEY",
+	displayName: "My Bailian",
+	apiKeyEnv: "MY_BAILIAN_KEY",
 	api: "openai-completions",
 	baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
 	models: [
@@ -53,7 +54,7 @@ const userRoute = {
 	],
 };
 
-const patch = computeRoutePatch("ark-coding-plan", userRoute, isBailianHost);
+const patch = computeRoutePatch("my-bailian", userRoute, isBailianHost);
 
 ok("识别百炼路由并产出补丁", () => assert.ok(patch));
 
@@ -92,6 +93,51 @@ ok("仅思考模型 kimi-k3 只补容量、不加档位", () => {
 	assert.equal("reasoningEfforts" in m, false);
 });
 
+ok("deepseek-v4.1-flash：无 off、minimal→ultra 六档、视觉输入、1M/393k", () => {
+	// ⚠️ harness 档位上限为 7 且 off 独占一格（pi-ai EXTENDED_THINKING_LEVELS），
+	// 所以官方「minimal→ultra 共七级」不可能整份塞进去，必须丢一级。
+	// 本目录丢高位 max、留低位 minimal（即不声明 off），最高档映射到官方 ultra。
+	const route = {
+		baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+		models: [{ id: "deepseek-v4.1-flash", name: "4.1-Flash" }],
+	};
+	const m = computeRoutePatch("my-bailian", route, isBailianHost).models[0];
+	assert.deepEqual(m.reasoningEfforts, {
+		minimal: "minimal",
+		low: "low",
+		medium: "medium",
+		high: "high",
+		xhigh: "xhigh",
+		max: "ultra",
+	});
+	assert.equal("off" in m.reasoningEfforts, false, "不声明 off");
+	assert.equal(m.contextWindow, 1000000);
+	assert.equal(m.maxTokens, 393216);
+	assert.deepEqual(m.input, ["text", "image"]);
+	assert.equal(m.compat.supportsReasoningEffort, true);
+	assert.equal(m.name, "4.1-Flash"); // 用户自定义名保留
+});
+
+ok("harness 档位上限 7 且 off 独占一格——minimal→ultra 七档不可能实现", () => {
+	// 用真实 pi-ai 的 getSupportedThinkingLevels 验证：声明 k 个非 off 档位，
+	// 解析出来就是 k 个（未声明档位被 dsh-llm-pi-ai 钉成 null 后剔除）。
+	const pin = (declared) => {
+		const out = {};
+		for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) {
+			const wire = declared[level];
+			if (wire === undefined) out[level] = null;
+			else if (wire !== null) out[level] = wire;
+		}
+		return out;
+	};
+	const six = { minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "ultra" };
+	const model = (map) => ({ reasoning: true, thinkingLevelMap: map });
+	assert.deepEqual(getSupportedThinkingLevels(model(pin(six))), ["minimal", "low", "medium", "high", "xhigh", "max"]);
+	// off 一旦缺席就补不回来：官方七级枚举塞不进 off+6 之外的任何形态
+	assert.deepEqual(getSupportedThinkingLevels(model(pin({ off: null, ...six }))), ["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+	assert.equal(getSupportedThinkingLevels(model(pin(six))).length, 6, "六档就是上限");
+});
+
 ok("catalogFor 不错配：glm-5.1 不会落到 glm-5", () => {
 	assert.equal(catalogFor("glm-5.1").maxTokens, 131072);
 	assert.equal(catalogFor("glm-5").maxTokens, 16384);
@@ -99,10 +145,46 @@ ok("catalogFor 不错配：glm-5.1 不会落到 glm-5", () => {
 	assert.equal(catalogFor("nonexistent-model-1"), undefined);
 });
 
-ok("非百炼路由与预置路由不动", () => {
+ok("非百炼路由不动；预置路由靠 base 层免主机判定", () => {
 	assert.equal(computeRoutePatch("openai", { baseURL: "https://api.openai.com/v1", models: [{ id: "qwen3.8-max" }] }, isBailianHost), undefined);
-	assert.equal(computeRoutePatch("bailian", { baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", models: [{ id: "qwen3.8-max" }] }, isBailianHost), undefined);
 	assert.equal(computeRoutePatch("x", { baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1" }, isBailianHost), undefined); // 无 models 列表
+	// 预置 bailian 路由用户层不写 baseURL，照样按目录补齐；路由级 compat 由 base 提供，不重复写
+	const p = computeRoutePatch("bailian", { apiKeyEnv: "MY_BAILIAN_KEY", models: [{ id: "qwen3.8-max" }] }, isBailianHost);
+	assert.equal(p.compat, undefined);
+	assert.deepEqual(Object.keys(p.models[0].reasoningEfforts), ["off", "low", "medium", "xhigh"]);
+});
+
+// 回归：用户把 GUI 模型页回写的清单挂在预置 bailian 路由上（数组整体替换 base 目录），
+// 清单里的 deepseek-v4.1-flash 曾经因此拿不到任何档位 → 推理强度滑动条消失。
+ok("预置路由 + 用户清单：deepseek-v4.1-flash 仍拿到档位", () => {
+	const route = {
+		apiKeyEnv: "MY_BAILIAN_KEY",
+		models: [
+			{ id: "qwen3.8-max-0902", name: "Qwen3.8 Max" },
+			{ id: "glm-5.2-fast-preview", name: "GLM-5.2 Fast Preview" },
+			{ id: "kimi-k3", name: "Kimi K3" },
+			{ id: "deepseek-v4.1-flash", name: "4.1-Flash" },
+		],
+	};
+	const p = computeRoutePatch("bailian", route, isBailianHost);
+	assert.deepEqual(p.models.map((m) => m.id), ["qwen3.8-max-0902", "glm-5.2-fast-preview", "kimi-k3", "deepseek-v4.1-flash"]);
+	const v41 = p.models[3];
+	assert.deepEqual(v41.reasoningEfforts, {
+		minimal: "minimal",
+		low: "low",
+		medium: "medium",
+		high: "high",
+		xhigh: "xhigh",
+		max: "ultra",
+	});
+	assert.equal(v41.contextWindow, 1000000);
+	assert.equal(v41.maxTokens, 393216);
+	assert.deepEqual(v41.input, ["text", "image"]);
+	assert.equal(v41.compat.supportsReasoningEffort, true);
+	assert.equal(v41.name, "4.1-Flash"); // 用户自定义名保留
+	// 仅思考型的 kimi-k3 只补容量、不加档位
+	assert.equal(p.models[2].contextWindow, 1048576);
+	assert.equal("reasoningEfforts" in p.models[2], false);
 });
 
 // ── 3. 合并 + 真实 schema 校验 ────────────────────────────────────
@@ -116,8 +198,8 @@ const merge = (base, patchObj) => {
 let mergedSection;
 const { Config } = await import("@deepseek-ai/dsh-llm-pi-ai");
 {
-	const userSection = { providers: { "ark-coding-plan": userRoute } };
-	mergedSection = merge(userSection, { providers: { "ark-coding-plan": patch } });
+	const userSection = { providers: { "my-bailian": userRoute } };
+	mergedSection = merge(userSection, { providers: { "my-bailian": patch } });
 	const result = await Config["~standard"].validate(mergedSection);
 	if (result.issues) {
 		console.error(JSON.stringify(result.issues, null, 2));
@@ -129,13 +211,13 @@ const { Config } = await import("@deepseek-ai/dsh-llm-pi-ai");
 
 // ── 4. 幂等性 ─────────────────────────────────────────────────────
 ok("幂等：填补后再算无缺口", () => {
-	const mergedRoute = mergedSection.providers["ark-coding-plan"];
-	assert.equal(computeRoutePatch("ark-coding-plan", mergedRoute, isBailianHost), undefined);
+	const mergedRoute = mergedSection.providers["my-bailian"];
+	assert.equal(computeRoutePatch("my-bailian", mergedRoute, isBailianHost), undefined);
 });
 
 // ── 4b. 上下文阈值 maxContext ───────────────────────────────────
 ok("已有路由：目录源的 contextWindow 超过阈值被钳制，低于阈值不动", () => {
-	const p = computeRoutePatch("ark-coding-plan", structuredClone(userRoute), isBailianHost, 400000);
+	const p = computeRoutePatch("my-bailian", structuredClone(userRoute), isBailianHost, 400000);
 	// kimi-k3 目录值 1048576 → 钳到 400000；用户未写过 contextWindow
 	assert.equal(p.models[3].contextWindow, 400000);
 	// qwen3.8-max-0902 目录值 1000000 → 400000
@@ -144,12 +226,12 @@ ok("已有路由：目录源的 contextWindow 超过阈值被钳制，低于阈�
 
 ok("阈值只钳目录源值，用户显式写的 contextWindow 不动", () => {
 	const route = { ...structuredClone(userRoute), models: [{ id: "kimi-k3", name: "K3", contextWindow: 800000 }] };
-	const p = computeRoutePatch("ark-coding-plan", route, isBailianHost, 400000);
+	const p = computeRoutePatch("my-bailian", route, isBailianHost, 400000);
 	assert.equal(p.models[0].contextWindow, 800000); // 用户显式 800000，不钳
 });
 
 ok("无阈值时目录值原样（1M）", () => {
-	const p = computeRoutePatch("ark-coding-plan", structuredClone(userRoute), isBailianHost);
+	const p = computeRoutePatch("my-bailian", structuredClone(userRoute), isBailianHost);
 	assert.equal(p.models[3].contextWindow, 1048576);
 });
 
@@ -173,7 +255,7 @@ const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // ── 5. apply() 全链路（mock settings 服务） ───────────────────────
 async function testApply() {
-	const document = { "llm-pi-ai": { providers: { "ark-coding-plan": structuredClone(userRoute) } } };
+	const document = { "llm-pi-ai": { providers: { "my-bailian": structuredClone(userRoute) } } };
 	let revision = 1;
 	const updates = [];
 	const listeners = [];
@@ -200,7 +282,7 @@ async function testApply() {
 	await new Promise((r) => setTimeout(r, 50)); // 等初始 pass + 事件触发的重跑
 
 	assert.equal(updates.length, 1, "只应写入一次（事件重跑时幂等）");
-	const filled = document["llm-pi-ai"].providers["ark-coding-plan"];
+	const filled = document["llm-pi-ai"].providers["my-bailian"];
 	assert.equal(filled.compat.thinkingFormat, "qwen");
 	assert.equal(filled.models[0].name, "3.8");
 	assert.deepEqual(Object.keys(filled.models[0].reasoningEfforts), ["off", "low", "medium", "xhigh"]);
@@ -213,7 +295,7 @@ await testApply();
 async function testMaxContext() {
 	// base 层 = 插件预置的 bailian 路由（catalog 原值）
 	const baseBailian = { compat: ROUTE_DEFAULTS.compat, thinkingBudgets: ROUTE_DEFAULTS.thinkingBudgets, models: MODELS.map((m) => ({ ...m })) };
-	const document = { "llm-pi-ai": { providers: { "ark-coding-plan": structuredClone(userRoute) } } };
+	const document = { "llm-pi-ai": { providers: { "my-bailian": structuredClone(userRoute) } } };
 	let revision = 1;
 	const updates = [];
 	const listeners = [];
@@ -238,10 +320,10 @@ async function testMaxContext() {
 	apply(ctx, { autoAdapt: true, maxContext: 400000 });
 	await new Promise((r) => setTimeout(r, 50));
 
-	// 第一次写入：ark-coding-plan 缺口补齐 + bailian 阈值钳制，应在同一次 update 里
+	// 第一次写入：my-bailian 缺口补齐 + bailian 阈值钳制，应在同一次 update 里
 	assert.equal(updates.length, 1, "一次写入");
 	const u = updates[0].providers;
-	assert.ok(u["ark-coding-plan"], "已有路由被补齐");
+	assert.ok(u["my-bailian"], "已有路由被补齐");
 	assert.ok(u.bailian?.models, "预置路由被阈值钳制");
 	const byId = new Map(u.bailian.models.map((m) => [m.id, m]));
 	assert.equal(byId.get("qwen3.8-max").contextWindow, 400000);
@@ -255,5 +337,55 @@ async function testMaxContext() {
 	passed++;
 }
 await testMaxContext();
+
+// ── 7. apply() + 预置路由上的用户清单（GUI 回写形态） ─────────────
+async function testPresetUserModels() {
+	const baseBailian = { compat: ROUTE_DEFAULTS.compat, thinkingBudgets: ROUTE_DEFAULTS.thinkingBudgets, models: MODELS.map((m) => ({ ...m })) };
+	const presetRoute = {
+		apiKeyEnv: "MY_BAILIAN_KEY",
+		models: [
+			{ id: "qwen3.8-max-0902", name: "3.8" },
+			{ id: "glm-5.2-fast-preview", name: "5.2" },
+			{ id: "kimi-k3", name: "K3" },
+			{ id: "deepseek-v4.1-flash", name: "4.1-Flash" },
+		],
+	};
+	const document = { "llm-pi-ai": { providers: { bailian: structuredClone(presetRoute) } } };
+	let revision = 1;
+	const updates = [];
+	const listeners = [];
+	const ctx = {
+		logger: { info() {}, warn() {} },
+		on: (event, fn) => listeners.push([event, fn]),
+		settings: {
+			describe: () => [{ ns: "llm-pi-ai", base: { providers: { bailian: baseBailian } }, user: document["llm-pi-ai"], revision }],
+			async update(ns, patchObj, expectedRevision) {
+				assert.equal(expectedRevision, revision);
+				const candidate = merge(document[ns], patchObj);
+				const result = await Config["~standard"].validate(candidate);
+				if (result.issues) throw new Error("validation failed");
+				if (equal(document[ns], candidate)) return; // 无变化：止循环
+				document[ns] = candidate;
+				revision++;
+				updates.push(patchObj);
+				for (const [, fn] of listeners.filter(([e]) => e === "settings/document-updated")) fn(ns);
+			},
+		},
+	};
+	apply(ctx, { autoAdapt: true });
+	await new Promise((r) => setTimeout(r, 50));
+
+	assert.equal(updates.length, 1, "只写一次（事件重跑幂等）");
+	const filled = document["llm-pi-ai"].providers.bailian;
+	assert.equal(filled.models.length, 4, "用户清单不被 base 的 37 个模型顶掉");
+	assert.deepEqual(filled.models.map((m) => m.id), presetRoute.models.map((m) => m.id));
+	assert.deepEqual(Object.keys(filled.models[3].reasoningEfforts), ["minimal", "low", "medium", "high", "xhigh", "max"]);
+	assert.equal(filled.models[3].reasoningEfforts.max, "ultra");
+	assert.equal(filled.models[3].contextWindow, 1000000);
+	assert.equal(filled.apiKeyEnv, "MY_BAILIAN_KEY"); // 用户字段原样保留
+	console.log("  ✓ apply()+预置路由用户清单：一次写入、清单不被顶掉、v4.1-flash 拿到六档");
+	passed++;
+}
+await testPresetUserModels();
 
 console.log(`\n全部通过（${passed} 项）`);

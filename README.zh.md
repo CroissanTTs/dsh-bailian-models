@@ -76,6 +76,11 @@ export DASHSCOPE_API_KEY=sk-...
 | glm-5.1 | off · minimal ~ xhigh | 202,745 | 131,072 | 文 |
 | glm-5 | 同上 | 202,752 | 16,384 | 文 |
 | deepseek-v4-pro / -0813、deepseek-v4-flash / -0731 | off · high · max | 1,000,000 | 393,216 | 文 |
+| deepseek-v4.1-flash | minimal · low · medium · high · xhigh · max（→ ultra） | 1,000,000 | 393,216 | 文+图 |
+
+> **deepseek-v4.1-flash 的档位口径**：官方文档写的是「`reasoning_effort` 取 1～100 的整数」，但线上 `compatible-mode` 端点实测**拒绝整数**（`'reasoning_effort' must be an object with 'effort' field or a String`），只认枚举 `minimal/low/medium/high/xhigh/max/ultra` —— 其中 `ultra` 比文档多一档。
+>
+> ⚠️ **harness 的档位上限是 7 且 `off` 独占一格**（pi-ai 的 `EXTENDED_THINKING_LEVELS = off/minimal/low/medium/high/xhigh/max`，未声明档位会被剔除）。官方恰好有七级枚举，但「不要 off、minimal→ultra 正好七档」在 harness 里**物理上做不到** —— 那样会变成 8 档。只能是「off + 6 档」或「无 off、6 档」。本目录选后者：滑动条最低档 = `minimal`（不可关闭思考），最高档 `max` 映射到官方 `ultra`，等于丢掉高位的 `max`、保留低位 `minimal`。实测 `enable_thinking:false` 确实能关思考，所以这是主动取舍；想恢复「可关思考」，给 `reasoningEfforts` 补一行空的 `off:` 即可（此时最高只见 `xhigh`）。
 
 ### B. 预算型（thinking_budget）
 
@@ -107,10 +112,14 @@ llm-pi-ai:
       baseURL: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
       # 换凭据环境变量
       apiKeyEnv: MY_BAILIAN_KEY
-      # 收窄模型列表（整体替换），或给某个模型改容量
+      # 收窄模型列表。注意：settings 合并时数组是整体替换的，这份清单会盖掉
+      # base 层目录；清单里没写的字段由自动适配器按 id 从目录补回来（含
+      # reasoningEfforts），所以只写 id 就够了。
       models:
-        - id: qwen3.8-max   # 其余字段继承插件 base 层同名条目
+        - id: qwen3.8-max
 ```
+
+> ⚠️ **在设置界面的模型页改百炼列表要留神**：GUI 保存时会把当时解析出来的清单整份回写进 `settings.yaml` 的 `models`，从而盖掉 base 层目录（这就是"本来 37 个模型、改完只剩几个"的原因）。本包的适配器会在随后的设置变更里按 id 补齐被盖住条目缺失的字段，所以推理档位不会丢；但如果你本意是"整个目录都要"，最干净的做法是直接在用户层删掉 `models:` 这一段。
 
 ## 设上下文阈值
 
@@ -139,7 +148,7 @@ llm-pi-ai:
 
 ```bash
 npm install
-npm test   # schema 校验 cordis.patch.yml + catalog 同步性 + 自动适配器行为（13 项断言）
+npm test   # schema 校验 cordis.patch.yml + catalog 同步性 + 自动适配器行为（22 项断言）
 ```
 
 ## 已知的百炼平台约束

@@ -60,7 +60,11 @@ Bailian model families speak incompatible thinking dialects; the bundle adapts e
 
 All capacities from the official Alibaba Bailian docs. Context / max output in tokens.
 
-**A. Effort levels** — qwen3.8-max, qwen3.8-max-0902, qwen3.8-flash (off/low/medium/xhigh, 1M ctx, 131k out, text+image) · glm-5.2, glm-5.2-us, glm-5.2-fast-preview (off…max, 1,048,576 ctx) · glm-5.1, glm-5 (off…xhigh) · deepseek-v4-pro, deepseek-v4-pro-0813, deepseek-v4-flash, deepseek-v4-flash-0731 (off/high/max, 1M ctx, 393,216 out).
+**A. Effort levels** — qwen3.8-max, qwen3.8-max-0902, qwen3.8-flash (off/low/medium/xhigh, 1M ctx, 131k out, text+image) · glm-5.2, glm-5.2-us, glm-5.2-fast-preview (off…max, 1,048,576 ctx) · glm-5.1, glm-5 (off…xhigh) · deepseek-v4-pro, deepseek-v4-pro-0813, deepseek-v4-flash, deepseek-v4-flash-0731 (off/high/max, 1M ctx, 393,216 out) · deepseek-v4.1-flash (minimal…max — six levels, no `off`; 1M ctx, 393,216 out, text+image).
+
+> **deepseek-v4.1-flash levels**: the official docs say `reasoning_effort` takes an integer 1–100, but the live `compatible-mode` endpoint rejects integers (`'reasoning_effort' must be an object with 'effort' field or a String`) and only accepts the enum `minimal/low/medium/high/xhigh/max/ultra` — `ultra` being one level beyond the documented set.
+>
+> ⚠️ The harness caps the level list at **7**, and `off` occupies one of those slots (pi-ai's `EXTENDED_THINKING_LEVELS = off/minimal/low/medium/high/xhigh/max`; undeclared levels are dropped). The official enum has exactly seven values, so "drop `off`, minimal→ultra = seven levels" is **physically impossible** in the harness — that would be eight. The choice is "off + 6 levels" or "no off, 6 levels". This catalog picks the latter: the slider's floor is `minimal` (thinking cannot be disabled for this model), and `max` maps to the official top tier `ultra` — i.e. the high `max` is sacrificed to keep the low `minimal`. `enable_thinking:false` does genuinely disable thinking (tested), so this is a deliberate trade-off; to restore "can disable thinking", add an empty `off:` line to `reasoningEfforts` (the top then becomes `xhigh`).
 
 **B. Budgets** — qwen3.7-max/plus/flash, qwen3.6-plus/flash, qwen3.5-plus/flash, qwen3-max, qwen-plus (off/minimal/low/medium/high).
 
@@ -80,7 +84,14 @@ llm-pi-ai:
     bailian:
       baseURL: https://dashscope-intl.aliyuncs.com/compatible-mode/v1  # Singapore
       apiKeyEnv: MY_BAILIAN_KEY
+      # Narrow the model list. Note that settings merges arrays wholesale, so this
+      # list replaces the base-layer catalog; fields you leave out are restored by
+      # the auto-adapter by id (including reasoningEfforts) — the id alone suffices.
+      models:
+        - id: qwen3.8-max
 ```
+
+> ⚠️ **Careful when editing the Bailian list on the Models page**: the GUI writes the resolved list back into `settings.yaml` as `models`, replacing the base-layer catalog (this is how a 37-model route shrinks to a handful). The auto-adapter restores the missing fields by id on the next settings change, so effort levels survive — but if you want the whole catalog, delete that `models:` block from the user layer.
 
 **Uninstall** removes the base-layer route; any user-layer overrides of `bailian` stay harmless but inert — delete them too if you like.
 
@@ -97,7 +108,7 @@ Validate after editing the patch:
 
 ```bash
 npm install
-npm test   # schema-validates cordis.patch.yml + catalog sync + auto-adapter behavior (13 assertions)
+npm test   # schema-validates cordis.patch.yml + catalog sync + auto-adapter behavior (22 assertions)
 ```
 
 ## Platform constraints worth knowing
