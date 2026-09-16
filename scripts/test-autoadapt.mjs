@@ -8,7 +8,7 @@
  *  5. apply() 全链路（mock settings 服务）：写入载荷、revision 传递、二次不重复写
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
 import { apply, catalogFor, clampPresetModels, computeRoutePatch } from "../src/index.js";
@@ -35,6 +35,20 @@ ok("catalog.mjs 与 cordis.patch.yml 同步", () => {
 	assert.deepEqual(MODELS, preset.models);
 	assert.deepEqual(ROUTE_DEFAULTS.compat, preset.compat);
 	assert.deepEqual(ROUTE_DEFAULTS.thinkingBudgets, preset.thinkingBudgets);
+});
+
+// 发布护栏：npm 只打包 package.json#files 覆盖到的路径。bundle patch 不在其中时
+// 本地 link: 安装照常工作，但每个从 npm 装的用户都会因找不到 patch 而加载失败。
+ok("files 覆盖 dsh.bundle.patch（否则 npm 安装会缺 patch 文件）", () => {
+	const pkg = JSON.parse(readFileSync(root + "package.json", "utf8"));
+	const patch = pkg.dsh?.bundle?.patch;
+	assert.ok(patch, "package.json 必须声明 dsh.bundle.patch");
+	const rel = patch.replace(/^\.\//, "");
+	const covered = (pkg.files ?? []).some((entry) =>
+		entry.endsWith("/") ? rel.startsWith(entry) : rel === entry
+	);
+	assert.ok(covered, `files ${JSON.stringify(pkg.files)} 未覆盖 ${rel}`);
+	assert.ok(existsSync(root + rel), `${rel} 在仓库里不存在`);
 });
 
 // ── 2. computeRoutePatch 行为 ─────────────────────────────────────
