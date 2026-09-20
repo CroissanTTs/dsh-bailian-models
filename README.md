@@ -60,11 +60,15 @@ Bailian model families speak incompatible thinking dialects; the bundle adapts e
 
 All capacities from the official Alibaba Bailian docs. Context / max output in tokens.
 
-**A. Effort levels** — qwen3.8-max, qwen3.8-max-0902, qwen3.8-flash (off/low/medium/xhigh, 1M ctx, 131k out, text+image) · glm-5.2, glm-5.2-us, glm-5.2-fast-preview (off…max, 1,048,576 ctx) · glm-5.1, glm-5 (off…xhigh) · deepseek-v4-pro, deepseek-v4-pro-0813, deepseek-v4-flash, deepseek-v4-flash-0731 (off/high/max, 1M ctx, 393,216 out) · deepseek-v4.1-flash (minimal…max — six levels, no `off`; 1M ctx, 393,216 out, text+image).
+**A. Effort levels** — qwen3.8-max, qwen3.8-max-0902, qwen3.8-flash (off/low/medium/xhigh, 1M ctx, 131k out, text+image) · glm-5.3 (low/high/max — thinking cannot be disabled; 1M ctx, 131k out) · glm-5.2, glm-5.2-us, glm-5.2-fast-preview (off…max, 1,048,576 ctx) · glm-5.1, glm-5 (off…xhigh) · deepseek-v4-pro, deepseek-v4-pro-0813, deepseek-v4-flash, deepseek-v4-flash-0731 (off/high/max, 1M ctx, 393,216 out) · deepseek-v4.1-flash (minimal…max — six levels, no `off`; 1M ctx, 393,216 out, text+image).
 
 > **deepseek-v4.1-flash levels**: the official docs say `reasoning_effort` takes an integer 1–100, but the live `compatible-mode` endpoint rejects integers (`'reasoning_effort' must be an object with 'effort' field or a String`) and only accepts the enum `minimal/low/medium/high/xhigh/max/ultra` — `ultra` being one level beyond the documented set.
 >
 > ⚠️ The harness caps the level list at **7**, and `off` occupies one of those slots (pi-ai's `EXTENDED_THINKING_LEVELS = off/minimal/low/medium/high/xhigh/max`; undeclared levels are dropped). The official enum has exactly seven values, so "drop `off`, minimal→ultra = seven levels" is **physically impossible** in the harness — that would be eight. The choice is "off + 6 levels" or "no off, 6 levels". This catalog picks the latter: the slider's floor is `minimal` (thinking cannot be disabled for this model), and `max` maps to the official top tier `ultra` — i.e. the high `max` is sacrificed to keep the low `minimal`. `enable_thinking:false` does genuinely disable thinking (tested), so this is a deliberate trade-off; to restore "can disable thinking", add an empty `off:` line to `reasoningEfforts` (the top then becomes `xhigh`).
+>
+> **glm-5.3 levels**: only `low / high / max`, and thinking **cannot be disabled**. The docs say passing `enable_thinking=false` "has no effect", but the live endpoint returns a hard **400** (`InternalError.Algo.InvalidParameter: The value of the enable_thinking parameter is restricted`) — this catalog follows the measured behaviour: three levels, no `off`.
+>
+> Because the harness's `qwen` dialect sends `enable_thinking: false` when no level is selected (a guaranteed 400 here), this entry overrides `thinkingFormat` from the route's `qwen` to **`openai`** in its model-level compat. pi-ai then sends `reasoning_effort` only when a level is picked and **sends nothing at all** otherwise, falling back to the model default (thinking on). The levels do scale depth: on the same hard problem, `low` ≈ 10, `high` ≈ 59, `max` ≈ 686 reasoning tokens.
 
 **B. Budgets** — qwen3.7-max/plus/flash, qwen3.6-plus/flash, qwen3.5-plus/flash, qwen3-max, qwen-plus (off/minimal/low/medium/high).
 

@@ -72,6 +72,7 @@ export DASHSCOPE_API_KEY=sk-...
 | qwen3.8-max | off · low · medium · xhigh | 1,000,000 | 131,072 | 文+图 |
 | qwen3.8-max-0902（快照） | 同上 | 1,000,000 | 131,072 | 文+图 |
 | qwen3.8-flash | 同上 | 1,000,000 | 131,072 | 文+图 |
+| glm-5.3 | low · high · max（**不能关闭思考**） | 1,000,000 | 131,072 | 文 |
 | glm-5.2 / glm-5.2-us / glm-5.2-fast-preview | off · minimal · low · medium · high · xhigh · max | 1,048,576 | 131,072 | 文 |
 | glm-5.1 | off · minimal ~ xhigh | 202,745 | 131,072 | 文 |
 | glm-5 | 同上 | 202,752 | 16,384 | 文 |
@@ -81,6 +82,11 @@ export DASHSCOPE_API_KEY=sk-...
 > **deepseek-v4.1-flash 的档位口径**：官方文档写的是「`reasoning_effort` 取 1～100 的整数」，但线上 `compatible-mode` 端点实测**拒绝整数**（`'reasoning_effort' must be an object with 'effort' field or a String`），只认枚举 `minimal/low/medium/high/xhigh/max/ultra` —— 其中 `ultra` 比文档多一档。
 >
 > ⚠️ **harness 的档位上限是 7 且 `off` 独占一格**（pi-ai 的 `EXTENDED_THINKING_LEVELS = off/minimal/low/medium/high/xhigh/max`，未声明档位会被剔除）。官方恰好有七级枚举，但「不要 off、minimal→ultra 正好七档」在 harness 里**物理上做不到** —— 那样会变成 8 档。只能是「off + 6 档」或「无 off、6 档」。本目录选后者：滑动条最低档 = `minimal`（不可关闭思考），最高档 `max` 映射到官方 `ultra`，等于丢掉高位的 `max`、保留低位 `minimal`。实测 `enable_thinking:false` 确实能关思考，所以这是主动取舍；想恢复「可关思考」，给 `reasoningEfforts` 补一行空的 `off:` 即可（此时最高只见 `xhigh`）。
+>
+> **glm-5.3 的档位口径**：官方只支持 `low / high / max`，且**不支持关闭思考**。文档写「传入 `enable_thinking=false` 不会生效」，但线上实测是**直接 400**
+> （`InternalError.Algo.InvalidParameter: The value of the enable_thinking parameter is restricted`）—— 本目录以实测为准，只提供三级、不声明 `off`。
+>
+> 因为 harness 的 `qwen` 方言在「未选档位」时会发 `enable_thinking: false`（必然 400），这一条目的 compat 里把 `thinkingFormat` 从路由的 `qwen` **覆盖为 `openai`**：pi-ai 于是只在选了档位时发 `reasoning_effort`，未选档位时**什么都不发**，走模型默认（默认即思考模式）。实测档位确实在调深度：同一道难题下 `low`≈10 / `high`≈59 / `max`≈686 思考 token。
 
 ### B. 预算型（thinking_budget）
 

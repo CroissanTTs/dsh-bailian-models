@@ -132,6 +132,30 @@ ok("deepseek-v4.1-flash：无 off、minimal→ultra 六档、视觉输入、1M/3
 	assert.equal(m.name, "4.1-Flash"); // 用户自定义名保留
 });
 
+ok("glm-5.3：只给 low/high/max，并用模型级 thinkingFormat 绕开 enable_thinking 限制", () => {
+	// 线上实测：glm-5.3 不接受 enable_thinking=false（400 InvalidParameter），
+	// 官方文档只写「不会生效」——以实测为准。因此
+	//   · 不声明 off（声明了就等于承诺一个必被拒的请求）；
+	//   · 模型级 thinkingFormat 从路由的 qwen 覆盖为 openai，pi-ai 便只在选了档位时
+	//     发 reasoning_effort；未选档位时什么都不发，走模型默认（默认即思考）。
+	const route = { baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", models: [{ id: "glm-5.3" }] };
+	const m = computeRoutePatch("my-bailian", route, isBailianHost).models[0];
+	assert.deepEqual(m.reasoningEfforts, { low: "low", high: "high", max: "max" });
+	assert.equal("off" in m.reasoningEfforts, false, "不能声明 off");
+	assert.equal(m.compat.thinkingFormat, "openai", "必须覆盖路由级的 qwen");
+	assert.equal(m.compat.supportsReasoningEffort, true);
+	assert.equal(m.contextWindow, 1000000);
+	assert.equal(m.maxTokens, 131072);
+	// 解析出来的档位正好三级（用真实 pi-ai，而非自造的期望值）
+	const pinned = {};
+	for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) {
+		const wire = m.reasoningEfforts[level];
+		if (wire === undefined) pinned[level] = null;
+		else if (wire !== null) pinned[level] = wire;
+	}
+	assert.deepEqual(getSupportedThinkingLevels({ reasoning: true, thinkingLevelMap: pinned }), ["low", "high", "max"]);
+});
+
 ok("harness 档位上限 7 且 off 独占一格——minimal→ultra 七档不可能实现", () => {
 	// 用真实 pi-ai 的 getSupportedThinkingLevels 验证：声明 k 个非 off 档位，
 	// 解析出来就是 k 个（未声明档位被 dsh-llm-pi-ai 钉成 null 后剔除）。

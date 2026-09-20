@@ -92,6 +92,26 @@
               low: low
               medium: medium
               xhigh: xhigh
+          # GLM-5.3：官方只认 low / high / max，且**不支持关闭思考**。
+          # 文档说传 enable_thinking=false「不会生效」，线上实测是直接 400
+          # （InternalError.Algo.InvalidParameter: The value of the enable_thinking
+          # parameter is restricted）。所以这里做两件事：
+          #  1. 不声明 off —— 声明了就等于承诺一个端点必定拒绝的请求；
+          #  2. 模型级 thinkingFormat 从路由的 qwen 覆盖为 openai，让 pi-ai 走
+          #     「只在选了档位时发 reasoning_effort」那条分支：未选档位时**完全不发**
+          #     enable_thinking，走模型默认（默认即思考模式），因此不会踩到 400。
+          # 实测档位确实在调深度（难题：low≈10 / high≈59 / max≈686 思考 token）。
+          - id: glm-5.3
+            name: GLM-5.3
+            contextWindow: 1000000
+            maxTokens: 131072
+            compat:
+              supportsReasoningEffort: true
+              thinkingFormat: openai
+            reasoningEfforts:
+              low: low
+              high: high
+              max: max
           # GLM-5.2 系列：官方文档取值 none~max（none 由 off 档覆盖）。
           - id: glm-5.2
             name: GLM-5.2

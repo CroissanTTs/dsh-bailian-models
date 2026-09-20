@@ -72,6 +72,21 @@ export const MODELS = [
 		}
 	},
 	{
+		"id": "glm-5.3",
+		"name": "GLM-5.3",
+		"contextWindow": 1000000,
+		"maxTokens": 131072,
+		"compat": {
+			"supportsReasoningEffort": true,
+			"thinkingFormat": "openai"
+		},
+		"reasoningEfforts": {
+			"low": "low",
+			"high": "high",
+			"max": "max"
+		}
+	},
+	{
 		"id": "glm-5.2",
 		"name": "GLM-5.2",
 		"contextWindow": 1048576,
