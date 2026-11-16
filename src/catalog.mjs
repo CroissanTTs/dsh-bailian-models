@@ -15,6 +15,28 @@ export const ROUTE_DEFAULTS = {
 };
 export const MODELS = [
 	{
+		"id": "qwen4-max",
+		"name": "Qwen4 Max",
+		"contextWindow": 1000000,
+		"maxTokens": 393216,
+		"input": [
+			"text",
+			"image"
+		],
+		"compat": {
+			"supportsReasoningEffort": true
+		},
+		"reasoningEfforts": {
+			"off": null,
+			"minimal": "minimal",
+			"low": "low",
+			"medium": "medium",
+			"high": "high",
+			"xhigh": "xhigh",
+			"max": "max"
+		}
+	},
+	{
 		"id": "qwen3.8-max",
 		"name": "Qwen3.8 Max",
 		"contextWindow": 1000000,
@@ -74,6 +96,21 @@ export const MODELS = [
 	{
 		"id": "glm-5.3",
 		"name": "GLM-5.3",
+		"contextWindow": 1000000,
+		"maxTokens": 131072,
+		"compat": {
+			"supportsReasoningEffort": true,
+			"thinkingFormat": "openai"
+		},
+		"reasoningEfforts": {
+			"low": "low",
+			"high": "high",
+			"max": "max"
+		}
+	},
+	{
+		"id": "glm-5.3-prime",
+		"name": "GLM-5.3 Prime",
 		"contextWindow": 1000000,
 		"maxTokens": 131072,
 		"compat": {

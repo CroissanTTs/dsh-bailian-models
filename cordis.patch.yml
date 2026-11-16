@@ -54,6 +54,26 @@
           high: 65536
         models:
           # ── A. 等级型：reasoning_effort ─────────────────────────────
+          # Qwen4 系列（2026-11-16 上线）：实测合法枚举为
+          # none/off/minimal/low/medium/high/xhigh/max（比 harness 多 none/off 两个
+          # 关思考线值），enable_thinking:false 也有效。七档全量映射，qwen 方言照常
+          # （off 走 enable_thinking:false）。容量 1M/393k，元数据声明支持文+图+视频，
+          # 但 harness 模态只有 text/image，故按此声明。
+          - id: qwen4-max
+            name: Qwen4 Max
+            contextWindow: 1000000
+            maxTokens: 393216
+            input: [text, image]
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+              xhigh: xhigh
+              max: max
           # Qwen3.8 系列：官方支持 low / medium / xhigh（默认 xhigh）；
           # reasoning_effort 与 thinking_budget 互斥，故不配预算字段。
           - id: qwen3.8-max
@@ -103,6 +123,21 @@
           # 实测档位确实在调深度（难题：low≈10 / high≈59 / max≈686 思考 token）。
           - id: glm-5.3
             name: GLM-5.3
+            contextWindow: 1000000
+            maxTokens: 131072
+            compat:
+              supportsReasoningEffort: true
+              thinkingFormat: openai
+            reasoningEfforts:
+              low: low
+              high: high
+              max: max
+          # GLM-5.3-Prime（2026-09-21 上线）：实测与 glm-5.3 同口径 ——
+          # 只认 low/high/max；enable_thinking 被限制为 True
+          # （restricted to True），关思考同样 400。同款处理：不声明 off、
+          # 模型级 thinkingFormat=openai。档位深度实测 low≈10 / high≈87 / max≈578。
+          - id: glm-5.3-prime
+            name: GLM-5.3 Prime
             contextWindow: 1000000
             maxTokens: 131072
             compat:

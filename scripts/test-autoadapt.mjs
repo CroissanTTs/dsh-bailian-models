@@ -156,6 +156,34 @@ ok("glm-5.3：只给 low/high/max，并用模型级 thinkingFormat 绕开 enable
 	assert.deepEqual(getSupportedThinkingLevels({ reasoning: true, thinkingLevelMap: pinned }), ["low", "high", "max"]);
 });
 
+ok("qwen4-max：完整七档（off 走 enable_thinking:false，实测有效）", () => {
+	// 线上实测：合法枚举为 none/off/minimal/low/medium/high/xhigh/max，
+	// enable_thinking:false 也有效（reasoning_tokens=0）。
+	// qwen 方言照常：off → enable_thinking:false。
+	const route = { baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", models: [{ id: "qwen4-max" }] };
+	const m = computeRoutePatch("my-bailian", route, isBailianHost).models[0];
+	assert.deepEqual(m.reasoningEfforts, {
+		off: null, minimal: "minimal", low: "low", medium: "medium",
+		high: "high", xhigh: "xhigh", max: "max",
+	});
+	assert.equal(m.compat.supportsReasoningEffort, true);
+	assert.equal("thinkingFormat" in m.compat, false, "不需要模型级覆盖，走路由 qwen 方言");
+	assert.equal(m.contextWindow, 1000000);
+	assert.equal(m.maxTokens, 393216);
+	assert.deepEqual(m.input, ["text", "image"]);
+});
+
+ok("glm-5.3-prime：与 glm-5.3 同口径（low/high/max，thinkingFormat=openai）", () => {
+	// 线上实测：enable_thinking is restricted to True —— 关思考同样 400。
+	const route = { baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", models: [{ id: "glm-5.3-prime" }] };
+	const m = computeRoutePatch("my-bailian", route, isBailianHost).models[0];
+	assert.deepEqual(m.reasoningEfforts, { low: "low", high: "high", max: "max" });
+	assert.equal("off" in m.reasoningEfforts, false, "不能声明 off");
+	assert.equal(m.compat.thinkingFormat, "openai", "必须覆盖路由级的 qwen");
+	assert.equal(m.contextWindow, 1000000);
+	assert.equal(m.maxTokens, 131072);
+});
+
 ok("harness 档位上限 7 且 off 独占一格——minimal→ultra 七档不可能实现", () => {
 	// 用真实 pi-ai 的 getSupportedThinkingLevels 验证：声明 k 个非 off 档位，
 	// 解析出来就是 k 个（未声明档位被 dsh-llm-pi-ai 钉成 null 后剔除）。
