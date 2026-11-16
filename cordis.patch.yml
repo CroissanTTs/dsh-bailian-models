@@ -74,6 +74,29 @@
               high: high
               xhigh: xhigh
               max: max
+          # Kimi K3.1 Pro（2026-11-05 上线，阿里部署版）：实测合法枚举
+          # none/minimal/low/medium/high/xhigh/max（无 'off' 线值，关思考的线值是
+          # 'none'）；enable_thinking:false 与 reasoning_effort:'none' 都实测为
+          # 0 思考 token。七档全量映射，qwen 方言照常（off → enable_thinking:false）。
+          # 深度实测单调递增：minimal≈118 / low≈125 / medium≈692 / high≈279 /
+          # xhigh≈1566 / max≈1797（high 偏低为采样波动）。
+          # 容量 1M/1M；kimi/k3.1-pro 与 -highspeed 为月之暗面部署版，
+          # 需单独开通产品（本账号未开通，未收录）。
+          - id: kimi-k3.1-pro
+            name: Kimi K3.1 Pro
+            contextWindow: 1000000
+            maxTokens: 1048576
+            input: [text, image]
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              off:
+              minimal: minimal
+              low: low
+              medium: medium
+              high: high
+              xhigh: xhigh
+              max: max
           # Qwen3.8 系列：官方支持 low / medium / xhigh（默认 xhigh）；
           # reasoning_effort 与 thinking_budget 互斥，故不配预算字段。
           - id: qwen3.8-max

@@ -70,6 +70,7 @@ export DASHSCOPE_API_KEY=sk-...
 | 模型 | 可选档位 | 上下文 | 最大输出 | 输入 |
 |---|---|---|---|---|
 | qwen4-max | off · minimal · low · medium · high · xhigh · max | 1,000,000 | 393,216 | 文+图 |
+| kimi-k3.1-pro | off · minimal · low · medium · high · xhigh · max | 1,000,000 | 1,048,576 | 文+图 |
 | qwen3.8-max | off · low · medium · xhigh | 1,000,000 | 131,072 | 文+图 |
 | qwen3.8-max-0902（快照） | 同上 | 1,000,000 | 131,072 | 文+图 |
 | qwen3.8-flash | 同上 | 1,000,000 | 131,072 | 文+图 |

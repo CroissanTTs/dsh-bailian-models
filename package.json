@@ -1,6 +1,6 @@
 {
   "name": "dsh-bailian-models",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Alibaba Bailian (DashScope) model catalog preset + auto-adapter for DeepSeek Harness — reasoning effort levels, thinking budgets, context windows, auto-adaptation of existing Bailian routes, a configurable context ceiling",
   "keywords": [
     "deepseek-harness",

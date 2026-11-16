@@ -173,6 +173,23 @@ ok("qwen4-max：完整七档（off 走 enable_thinking:false，实测有效）",
 	assert.deepEqual(m.input, ["text", "image"]);
 });
 
+ok("kimi-k3.1-pro：完整七档（off 走 enable_thinking:false，实测有效）", () => {
+	// 线上实测：合法枚举 none/minimal/low/medium/high/xhigh/max（无 'off' 线值，
+	// 关思考的线值是 'none'）；enable_thinking:false 与 effort='none' 都是 0 思考 token。
+	// qwen 方言照常：off → enable_thinking:false。
+	const route = { baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", models: [{ id: "kimi-k3.1-pro" }] };
+	const m = computeRoutePatch("my-bailian", route, isBailianHost).models[0];
+	assert.deepEqual(m.reasoningEfforts, {
+		off: null, minimal: "minimal", low: "low", medium: "medium",
+		high: "high", xhigh: "xhigh", max: "max",
+	});
+	assert.equal(m.compat.supportsReasoningEffort, true);
+	assert.equal("thinkingFormat" in m.compat, false, "不需要模型级覆盖，走路由 qwen 方言");
+	assert.equal(m.contextWindow, 1000000);
+	assert.equal(m.maxTokens, 1048576);
+	assert.deepEqual(m.input, ["text", "image"]);
+});
+
 ok("glm-5.3-prime：与 glm-5.3 同口径（low/high/max，thinkingFormat=openai）", () => {
 	// 线上实测：enable_thinking is restricted to True —— 关思考同样 400。
 	const route = { baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", models: [{ id: "glm-5.3-prime" }] };

@@ -37,6 +37,28 @@ export const MODELS = [
 		}
 	},
 	{
+		"id": "kimi-k3.1-pro",
+		"name": "Kimi K3.1 Pro",
+		"contextWindow": 1000000,
+		"maxTokens": 1048576,
+		"input": [
+			"text",
+			"image"
+		],
+		"compat": {
+			"supportsReasoningEffort": true
+		},
+		"reasoningEfforts": {
+			"off": null,
+			"minimal": "minimal",
+			"low": "low",
+			"medium": "medium",
+			"high": "high",
+			"xhigh": "xhigh",
+			"max": "max"
+		}
+	},
+	{
 		"id": "qwen3.8-max",
 		"name": "Qwen3.8 Max",
 		"contextWindow": 1000000,
